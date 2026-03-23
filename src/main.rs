@@ -1,9 +1,10 @@
-use egui::{DragValue, Layout};
+use egui::{global_theme_preference_buttons, Color32, ComboBox, Context, DragValue, Layout, Ui};
 use egui_simpletabs::{
     buttons::{play_pause_button, reset_step_button, single_step_button},
-    dial::{Dial, DialPosition, ScaleMarking, choice},
+    dial::{choice, Dial, DialPosition, DragMode, ScaleMarking},
     metric::{edit_metric_f64, metric_prefix_dragvalue},
     tabs::TabWidgetExt,
+    utils::IndecisiveOption,
 };
 
 // When compiling natively:
@@ -78,8 +79,9 @@ fn main() {
 
 #[derive(PartialEq, Eq)]
 enum Tab {
-    Everything,
+    Home,
     Dial,
+    DialEditor,
     Metric,
     Buttons,
 }
@@ -88,14 +90,64 @@ pub struct TemplateApp {
     tab: Tab,
     volts: f64,
     paused: bool,
+    value: f64,
+
+    drag_mode: DragMode,
+
+    min: IndecisiveOption<f32>,
+    max: IndecisiveOption<f32>,
+
+    invert: bool,
+
+    underline: bool,
+
+    origin_angle: f64,
+    origin_value: f64,
+
+    mouse_sensitivity: f64,
+
+    value_per_radian: f64,
+
+    show_livezone: bool,
+
+    snap: IndecisiveOption<f32>,
+
+    value_int: i32,
+
+    value_positional: f32,
 }
 
 impl TemplateApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self {
-            tab: Tab::Everything,
+            tab: Tab::Home,
             volts: 5.0,
             paused: true,
+            value: 1f64,
+
+            drag_mode: DragMode::default(),
+
+            min: Some(-2.0).into(),
+            max: Some(2.0).into(),
+
+            invert: false,
+
+            underline: true,
+
+            origin_angle: -std::f64::consts::FRAC_PI_2,
+            origin_value: 0.0,
+
+            mouse_sensitivity: 5e-2,
+
+            value_per_radian: 1.0,
+
+            show_livezone: true,
+
+            snap: Some(0.05).into(),
+
+            value_int: 1,
+
+            value_positional: 1.5,
         }
     }
 }
@@ -103,10 +155,15 @@ impl TemplateApp {
 impl eframe::App for TemplateApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.tab == Tab::DialEditor {
+            self.dial_editor_cfg(ctx);
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.add_tab(&mut self.tab, Tab::Everything, "Everything");
+                ui.add_tab(&mut self.tab, Tab::Home, "Everything");
                 ui.add_tab(&mut self.tab, Tab::Dial, "Dial");
+                ui.add_tab(&mut self.tab, Tab::DialEditor, "Dial Editor");
                 ui.add_tab(&mut self.tab, Tab::Metric, "Metric");
 
                 ui.with_layout(Layout::right_to_left(Default::default()), |ui| {
@@ -116,10 +173,11 @@ impl eframe::App for TemplateApp {
             });
 
             match self.tab {
-                Tab::Everything => self.show_everything(ui),
+                Tab::Home => self.show_everything(ui),
                 Tab::Dial => self.show_dials(ui),
                 Tab::Metric => self.show_metric(ui),
                 Tab::Buttons => self.show_buttons(ui),
+                Tab::DialEditor => self.dial_editor_view(ui),
             }
         });
     }
@@ -149,17 +207,12 @@ impl TemplateApp {
                     .label("Five")
                     .color(egui::Color32::DARK_RED),
             )
-            .with_position(
-                DialPosition::new(10)
-                    .label("Ten")
-            );
+            .with_position(DialPosition::new(10).label("Ten"));
 
         ui.horizontal(|ui| {
             ui.add(dial);
 
-            choice(ui, &mut self.paused, &[
-                (false, "Run"), (true, "Pause"),
-            ]);
+            choice(ui, &mut self.paused, &[(false, "Run"), (true, "Pause")]);
         });
 
         ui.label("Double click labels to jump to their value.");
@@ -180,6 +233,249 @@ impl TemplateApp {
             if reset_step_button(ui).clicked() {
                 self.volts = 0.0;
             }
+        });
+    }
+
+    fn dial_editor_view(&mut self, ui: &mut Ui) {
+        ui.group(|ui| {
+            ui.heading("Dial (float)");
+
+            let mut dial = Dial::new(&mut self.value)
+                .drag_mode(self.drag_mode)
+                .value_per_radian(self.value_per_radian)
+                .min_value(self.min.into_option())
+                .max_value(self.max.into_option())
+                .invert(self.invert)
+                .origin_angle(self.origin_angle)
+                .origin_value(self.origin_value)
+                .mouse_sensitivity(self.mouse_sensitivity)
+                .show_livezone(self.show_livezone)
+                .with_scale_marking(ScaleMarking::default().with_interval(0.5))
+                .with_position(
+                    DialPosition::new(0)
+                        .label("Zero")
+                        .snap(self.snap.into())
+                        .underline(self.underline)
+                        .color(Color32::DARK_GREEN),
+                )
+                .with_position(
+                    DialPosition::new(1)
+                        .label("One")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+
+            if let Some(min) = self.min.into_option() {
+                dial = dial.with_position(
+                    DialPosition::new(min)
+                        .label("Min")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+            }
+
+            if let Some(max) = self.max.into_option() {
+                dial = dial.with_position(
+                    DialPosition::new(max)
+                        .label("Max")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+            }
+
+            ui.add(dial);
+            ui.add(DragValue::new(&mut self.value).speed(1e-2));
+        });
+
+        ui.group(|ui| {
+            ui.heading("Dial (integer value)");
+            let mut dial = Dial::new(&mut self.value_int)
+                .drag_mode(self.drag_mode)
+                .value_per_radian(self.value_per_radian)
+                .min_value(self.min.into_option().map(|v| v.floor()))
+                .max_value(self.max.into_option().map(|v| v.ceil()))
+                .invert(self.invert)
+                .origin_angle(self.origin_angle)
+                .origin_value(self.origin_value)
+                .mouse_sensitivity(self.mouse_sensitivity * 20.0)
+                .show_livezone(self.show_livezone)
+                .with_scale_marking(ScaleMarking::default().with_interval(1.0))
+                .knob_style(egui_simpletabs::dial::KnobStyle::Circular)
+                .with_position(
+                    DialPosition::new(0)
+                        .label("Zero")
+                        .snap(self.snap.into())
+                        .underline(self.underline)
+                        .color(Color32::DARK_GREEN),
+                )
+                .with_position(
+                    DialPosition::new(1)
+                        .label("One")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+
+            if let Some(min) = self.min.into_option() {
+                dial = dial.with_position(
+                    DialPosition::new(min.floor())
+                        .label("Min")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+            }
+
+            if let Some(max) = self.max.into_option() {
+                dial = dial.with_position(
+                    DialPosition::new(max.ceil())
+                        .label("Max")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+            }
+
+            ui.add(dial);
+            ui.add(DragValue::new(&mut self.value_int).speed(1e-2));
+        });
+
+        ui.group(|ui| {
+            ui.heading("Dial (positional values)");
+            let mut dial = Dial::new(&mut self.value_positional)
+                .drag_mode(self.drag_mode)
+                .value_per_radian(self.value_per_radian)
+                .min_value(self.min.into_option())
+                .max_value(self.max.into_option())
+                .invert(self.invert)
+                .origin_angle(self.origin_angle)
+                .origin_value(self.origin_value)
+                .mouse_sensitivity(self.mouse_sensitivity * 20.0)
+                .show_livezone(self.show_livezone)
+                .turning_mode(egui_simpletabs::dial::TurningMode::Positional)
+                .knob_style(egui_simpletabs::dial::KnobStyle::Fluted {
+                    n_segments: 18,
+                    depth: 0.1,
+                })
+                .with_position(
+                    DialPosition::new(0)
+                        .label("Zero")
+                        .snap(self.snap.into())
+                        .underline(self.underline)
+                        .color(Color32::DARK_GREEN),
+                )
+                .with_position(
+                    DialPosition::new(1.5)
+                        .label("1.5")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+
+            if let Some(min) = self.min.into_option() {
+                dial = dial.with_position(
+                    DialPosition::new(min)
+                        .label("Min")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+            }
+
+            if let Some(max) = self.max.into_option() {
+                dial = dial.with_position(
+                    DialPosition::new(max)
+                        .label("Max")
+                        .snap(self.snap.into())
+                        .underline(self.underline),
+                );
+            }
+
+            ui.add(dial);
+            ui.add(DragValue::new(&mut self.value_positional).speed(1e-2));
+        });
+
+        ui.label("Double click labels to snap to their position");
+    }
+
+    fn dial_editor_cfg(&mut self, ctx: &Context) {
+        egui::SidePanel::left("cfg").show(ctx, |ui| {
+            global_theme_preference_buttons(ui);
+
+            ui.group(|ui| {
+                ui.strong("Scale and range");
+                ui.horizontal(|ui| {
+                    ui.label("Min value");
+                    self.min
+                        .show(ui, |ui, min| ui.add(DragValue::new(min).speed(1e-2)));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Max value");
+                    self.max
+                        .show(ui, |ui, max| ui.add(DragValue::new(max).speed(1e-2)));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Scale");
+                    ui.add(DragValue::new(&mut self.value_per_radian).speed(1e-2));
+                });
+
+                ui.checkbox(&mut self.invert, "Invert");
+
+                ui.horizontal(|ui| {
+                    ui.label("Origin angle: ");
+                    ui.add(DragValue::new(&mut self.origin_angle).speed(1e-2));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Origin value: ");
+                    ui.add(DragValue::new(&mut self.origin_value).speed(1e-2));
+                });
+            });
+
+            ui.group(|ui| {
+                ui.strong("Drawing");
+                ui.checkbox(&mut self.underline, "Underline");
+                ui.checkbox(&mut self.show_livezone, "Show live zone");
+            });
+
+            ui.group(|ui| {
+                ui.strong("Interactivity");
+                ui.horizontal(|ui| {
+                    ui.label("Snap: ");
+                    self.snap.show(ui, |ui, snap_thresh| {
+                        ui.add(
+                            DragValue::new(snap_thresh)
+                                .prefix("Tolerance: ")
+                                .speed(1e-2),
+                        )
+                    });
+                    //ui.checkbox(&mut has_snap, "Snap");
+                    //ui.add_enabled(has_snap, DragValue::new(&mut snap_thresh).speed(1e-2));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Mouse sensitivity");
+                    ui.add(DragValue::new(&mut self.mouse_sensitivity).speed(1e-2));
+                });
+
+                ComboBox::new("drag", "Drag mode")
+                    .selected_text(format!("{:?}", self.drag_mode))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.drag_mode,
+                            DragMode::CoordinateY,
+                            "Coordinate Y",
+                        );
+                        ui.selectable_value(
+                            &mut self.drag_mode,
+                            DragMode::CoordinateX,
+                            "Coordinate X",
+                        );
+                        ui.selectable_value(&mut self.drag_mode, DragMode::Radial, "Radial");
+                        ui.selectable_value(
+                            &mut self.drag_mode,
+                            DragMode::DistanceFromCenter,
+                            "Distance From Center",
+                        );
+                    })
+            });
         });
     }
 }
