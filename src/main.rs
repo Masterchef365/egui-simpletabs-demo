@@ -164,7 +164,7 @@ impl eframe::App for TemplateApp {
                 ui.add_tab(&mut self.tab, Tab::Dial, "Dial");
                 ui.add_tab(&mut self.tab, Tab::DialEditor, "Dial Editor");
                 ui.add_tab(&mut self.tab, Tab::Metric, "Metric");
-                ui.add_tab(&mut self.tab, Tab::Metric, "Groups");
+                ui.add_tab(&mut self.tab, Tab::Groups, "Groups");
 
                 ui.with_layout(Layout::right_to_left(Default::default()), |ui| {
                     ui.add_tab(&mut self.tab, Tab::Buttons, "Buttons");
@@ -189,6 +189,7 @@ impl TemplateApp {
         self.show_buttons(ui);
         self.show_dials(ui);
         self.show_metric(ui);
+        self.show_groups(ui);
     }
 
     fn show_dials(&mut self, ui: &mut egui::Ui) {
