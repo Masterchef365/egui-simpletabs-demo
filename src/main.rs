@@ -1,10 +1,6 @@
-use egui::{global_theme_preference_buttons, Color32, ComboBox, Context, DragValue, Layout, Ui};
+use egui::{Color32, ComboBox, Context, DragValue, Layout, Stroke, Ui, global_theme_preference_buttons};
 use egui_simpletabs::{
-    buttons::{play_pause_button, reset_step_button, single_step_button},
-    dial::{choice, Dial, DialPosition, DragMode, ScaleMarking},
-    metric::{edit_metric_f64, metric_prefix_dragvalue},
-    tabs::TabWidgetExt,
-    utils::IndecisiveOption,
+    buttons::{play_pause_button, reset_step_button, single_step_button}, dial::{Dial, DialPosition, DragMode, ScaleMarking, choice}, groupbox::{FrameGroupBoxExt, GroupBox, UiGroupBoxExt}, metric::{edit_metric_f64, metric_prefix_dragvalue}, tabs::TabWidgetExt, utils::IndecisiveOption
 };
 
 // When compiling natively:
@@ -84,6 +80,7 @@ enum Tab {
     DialEditor,
     Metric,
     Buttons,
+    Groups,
 }
 
 pub struct TemplateApp {
@@ -91,6 +88,7 @@ pub struct TemplateApp {
     volts: f64,
     paused: bool,
     value: f64,
+    example_text: String,
 
     drag_mode: DragMode,
 
@@ -124,6 +122,7 @@ impl TemplateApp {
             volts: 5.0,
             paused: true,
             value: 1f64,
+            example_text: "Example text".into(),
 
             drag_mode: DragMode::default(),
 
@@ -165,6 +164,7 @@ impl eframe::App for TemplateApp {
                 ui.add_tab(&mut self.tab, Tab::Dial, "Dial");
                 ui.add_tab(&mut self.tab, Tab::DialEditor, "Dial Editor");
                 ui.add_tab(&mut self.tab, Tab::Metric, "Metric");
+                ui.add_tab(&mut self.tab, Tab::Metric, "Groups");
 
                 ui.with_layout(Layout::right_to_left(Default::default()), |ui| {
                     ui.add_tab(&mut self.tab, Tab::Buttons, "Buttons");
@@ -178,6 +178,7 @@ impl eframe::App for TemplateApp {
                 Tab::Metric => self.show_metric(ui),
                 Tab::Buttons => self.show_buttons(ui),
                 Tab::DialEditor => self.dial_editor_view(ui),
+                Tab::Groups => self.show_groups(ui),
             }
         });
     }
@@ -212,7 +213,9 @@ impl TemplateApp {
         ui.horizontal(|ui| {
             ui.add(dial);
 
-            choice(ui, &mut self.paused, &[(false, "Run"), (true, "Pause")]);
+            ui.group_box("Run state", |ui| {
+                choice(ui, &mut self.paused, &[(false, "Run"), (true, "Pause")]);
+            });
         });
 
         ui.label("Double click labels to jump to their value.");
@@ -477,5 +480,26 @@ impl TemplateApp {
                     })
             });
         });
+    }
+
+    fn show_groups(&mut self, ui: &mut egui::Ui) {
+        ui.text_edit_singleline(&mut self.example_text);
+        global_theme_preference_buttons(ui);
+
+        ui.group_box("This is a group box", |ui| {
+            ui.label("And it has stuff in it");
+        });
+
+        egui::Frame::group(ui.style())
+            .fill(Color32::BLUE)
+            .corner_radius(30.0)
+            .outer_margin(30.0)
+            .inner_margin(30.0)
+            .group_box(&self.example_text)
+            .text_color(Color32::RED)
+            .stroke(Stroke::new(0.5, Color32::RED))
+            .show(ui, |ui| {
+                ui.label("This statement is false or whatever");
+            });
     }
 }
